@@ -1,0 +1,133 @@
+#!/bin/bash
+
+## vim-explorer - Associate Vim with the Explorer
+## June 12, 2021 written by Supdrewin using Vim
+
+switchColor() {
+  case $color in
+    "$1") color=$2 ;;
+    *)    color=$1 ;;
+  esac
+}
+
+treeExplorer() {
+  local color
+  local depth=0
+  while [[ $depth -lt $1 ]]; do
+    switchColor 31 34
+    echo -ne "\e[0;${color}m|"
+    (( depth++ ))
+  done
+  echo -ne "\e[0;${color}m_"
+  switchColor 31 34
+}
+
+newItem() {
+  local command
+  local itemName
+  case $2 in
+    d) command="mkdir"
+       itemName="folder"
+      ;;
+    *) command="vim"
+       itemName="file"
+      ;;
+  esac
+  read -rp "Insert your $itemName name: " itemName
+  [[ "$itemName" ]] && \
+  [[ ! -d "$1/$itemName" ]] && \
+  [[ ! -f "$1/$itemName" ]] && \
+    $command "$1/$itemName"
+}
+
+removeItem() {
+  Trashcan="$HOME/.Trash"
+  if [[ -d "$Trashcan" ]]; then
+    mv "$1" "$Trashcan" 2> /dev/null
+  else
+    mkdir -p "$Trashcan"
+    removeItem "$1"
+  fi
+}
+
+listSingle() {
+  list=$(find -L "$1" -maxdepth 1 -type f -printf '%P\n' 2> /dev/null | tr " " "?")
+  for item in $list; do
+    item=${item//'?'/' '}
+    if [[ ! -d "$1/$item" ]]; then
+      treeExplorer "$depth"
+      (( buffer++ ))
+      if [[ $cursor -eq $buffer ]]; then
+        echo -e "\e[1;35m$item"
+        currentItem="$1/$item"
+        if [[ $request -eq 1 ]]; then
+          vim "$1/$item"
+        elif [[ $request -eq 2 ]]; then
+          removeItem "$1/$item"
+        fi
+      else echo -e "\e[1;33m$item"
+      fi
+    fi
+  done
+}
+
+listAvailable() {
+  (( depth++ ))
+  list=$(find -L "$1" -maxdepth 1 -type d -printf '%P\n' 2> /dev/null | tr " " "?")
+  for item in $list; do
+    item=${item//'?'/' '}
+    if [[ -d "$1/$item" ]]; then
+      treeExplorer "$depth"
+      (( buffer++ ))
+      if [[ $cursor -eq $buffer ]]; then
+        echo -e "\e[1;36m$(basename "$1/$item")"
+        currentItem="$1/$item"
+        if [[ $request -eq 1 ]]; then
+          treeExplorer "$depth"
+          newItem "$1/$item"
+        elif [[ $request -eq 2 ]]; then
+          removeItem "$1/$item"
+        fi
+        [[ $depth -le $2 ]] && listAvailable "$1/$item"
+      else echo -e "\e[1;32m$(basename "$1/$item")"
+      fi
+    fi
+  done
+  listSingle "$1"
+  (( depth-- ))
+}
+
+vim-explorer() {
+  while :; do
+    clear
+    buffer=0
+    workFolder=$(pwd)
+    echo -e "\e[1;32m$(basename "$workFolder")"
+    listAvailable "$workFolder" 2
+    if [[ $request -eq 0 ]] || [[ ! $request ]]; then
+      read -rsn 1 tmp
+      case $tmp in
+        h) cd ..
+           cursor=0
+          ;;
+        j) [[ $cursor -lt $buffer ]] && (( cursor++ )) ;;
+        k) [[ $cursor -gt 1 ]] && (( cursor-- )) ;;
+        l) if [[ $cursor -ne 0 ]] && [[ -d "$currentItem" ]]; then
+             cd "$currentItem" || :
+             cursor=0
+           fi ;;
+        d) newItem ./ d ;;
+        f) newItem ./ ;;
+        r) request=2 ;;
+        w) request=1 ;;
+        q) clear && exit ;;
+        *) echo "Command not found: '$tmp'" ;;
+      esac
+    else request=0
+    fi
+  done
+}
+
+vim-explorer
+
+# vim:set nu rnu cuc cul ts=2 sw=2 et si:
